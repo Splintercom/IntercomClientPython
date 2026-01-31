@@ -8,6 +8,7 @@ dependencies = [
     "boto3>=1.42.39",
     "numpy>=2.4.1",
     "opencv-python>=4.13.0.90",
+    "ruff>=0.14.14",
 ]
 
 [dependency-groups]
