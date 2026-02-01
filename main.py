@@ -1,6 +1,4 @@
-def main():
-    print("Hello from intercomclientpython!")
-
+from intercomclient.video_capture import VideoCaptureClient
 
 if __name__ == "__main__":
-    main()
+    video_client = VideoCaptureClient()
