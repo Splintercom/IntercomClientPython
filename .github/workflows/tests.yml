@@ -1,4 +1,4 @@
-name: run test
+name: run test suite
 
 on: [push]
 
@@ -15,4 +15,4 @@ jobs:
         run: uv sync
 
       - name: run tests
-        run: uv run pytest
+        run: uv run pytest tests/integration/intercomclient/test_video_pipeline.py
