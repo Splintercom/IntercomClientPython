@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Tuple
 import logging
+import os
 
 
 @dataclass()
@@ -8,12 +9,17 @@ class Config:
     segment_duration: int = 60
     fps: int = 5
     resolution: Tuple[int, int] = (320, 240)
-    s3_bucket_name: str = "segment-uploads"
     debug_mode: bool = True
     video_source: int = 0
     output_dir_path: str = "/tmp/intercom_videos"
     fourcc: str = "XVID"
     video_format: str = "avi"
+    oauth_scope: str = "openid email profile"
+    oauth_grant: str = "urn:ietf:params:oauth:grant-type:device_code"
+    oauth_client_id: str = os.getenv("OAUTH_CLIENT_ID", "wrong")
+    token_file_path: str = os.getenv("TOKEN_FILE_PATH", "wrong")
+    api_uri: str = os.getenv("API_URI", "wrong")
+    max_polling_time_mins: int = int(os.getenv("MAX_POLLING_TIME_MINS", 5))
 
 
 logging.basicConfig(level=logging.DEBUG if Config.debug_mode else logging.INFO)
