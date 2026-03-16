@@ -24,6 +24,9 @@ class TestClient:
         self.device_code = TokenStore(self.config, verify=False).load_tokens()[
             "device_code"
         ]
+        self.access_token = TokenStore(self.config, verify=False).load_tokens()[
+            "access"
+        ]["token_value"]
         self.websocket_api_url = (
             f"{self.config.websocket_api_base_url}/{self.device_code}/"
         )
@@ -60,7 +63,10 @@ class TestClient:
             if track.kind == "video":
                 self.remote_video = track
 
-        async with websockets.connect(self.websocket_api_url) as ws:
+        additional_headers = {"Authorization": "Bearer f{self.access_code}"}
+        async with websockets.connect(
+            self.websocket_api_url, additional_headers=additional_headers
+        ) as ws:
             # Create offer
             offer = await self.pc.createOffer()
             await self.pc.setLocalDescription(offer)
