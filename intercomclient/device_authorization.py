@@ -25,6 +25,19 @@ def initiate_device_authorization(config: Config) -> dict:
             "scope": "profile email",
         },
     )
+
+    if api_response.status_code != 200:
+        error_body = api_response.json() if api_response.content else {}
+        LOG.error(
+            "Device authorization failed (%d): %s — %s",
+            api_response.status_code,
+            error_body.get("error", "unknown"),
+            error_body.get("error_description", api_response.text),
+        )
+        raise RuntimeError(
+            f"Device authorization failed: {error_body.get('error_description', api_response.text)}"
+        )
+
     return api_response.json()
 
 

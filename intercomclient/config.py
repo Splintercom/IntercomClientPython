@@ -1,8 +1,24 @@
+import json
 import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
+
+
+def load_oauth_credentials():
+    """Load OAuth credentials from ~/.config/intercom-api/oauth.json"""
+    config_file = Path("~/.config/intercom-api/oauth.json").expanduser()
+
+    if config_file.exists():
+        with open(config_file, "r") as f:
+            creds = json.load(f)
+            return creds.get("client_id", "wrong"), creds.get("client_secret", "wrong")
+
+    # Fallback to environment variable if file doesn't exist
+    return os.getenv("OAUTH_CLIENT_ID", "wrong"), os.getenv(
+        "OAUTH_CLIENT_SECRET", "wrong"
+    )
 
 
 @dataclass()
@@ -17,7 +33,8 @@ class Config:
     video_format: str = "avi"
     oauth_scope: str = "openid email profile"
     oauth_grant: str = "urn:ietf:params:oauth:grant-type:device_code"
-    oauth_client_id: str = os.getenv("OAUTH_CLIENT_ID", "wrong")
+    oauth_client_id: str = load_oauth_credentials()[0]
+    oauth_client_secret: str = load_oauth_credentials()[1]
     token_file_path: Path = Path(
         os.getenv("TOKEN_FILE_PATH", "~/.config/intercomclient/tokens.json")
     ).expanduser()

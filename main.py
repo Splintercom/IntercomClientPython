@@ -5,7 +5,7 @@ import signal
 from datetime import UTC, datetime, timedelta
 
 import websockets
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCIceCandidate, RTCPeerConnection, RTCSessionDescription
 from requests import HTTPError
 
 from intercomclient.camera_video_stream_track import CameraVideoStreamTrack
@@ -66,6 +66,7 @@ class PiClient:
 
     def device_authorization_flow(self):
         auth_response = initiate_device_authorization(self.config)
+        print(auth_response)
         LOG.info("User code: %s", auth_response["user_code"])
 
         token_response = poll_for_token(
@@ -134,7 +135,10 @@ class PiClient:
 
         headers = {"Authorization": f"Bearer {access_token}"}
 
-        websocket_url = f"{self.config.websocket_api_base_url}/{device_code}/"
+        base = self.config.websocket_api_base_url.rstrip("/")
+        if "/ws/live_stream" not in base:
+            base = f"{base}/ws/live_stream"
+        websocket_url = f"{base}/{device_code}/"
 
         async with websockets.connect(
             websocket_url,
@@ -146,24 +150,17 @@ class PiClient:
             await self.setup_peer_connection()
 
             @self.pc.on("icecandidate")
-            async def on_icecandidate(self, candidate):
-                print(f"ICE candidate generated: {candidate}")
+            async def on_icecandidate(candidate):
+                LOG.info("ICE candidate generated: %s", candidate)
                 if candidate is not None:
-                    # Send the candidate to the signaling server
-                    await self.ws.send_json(
+                    await self.ws.send(
                         json.dumps(
                             {
                                 "type": "ice",
                                 "candidate": {
-                                    "candidate": candidate.component,
+                                    "candidate": candidate.candidate,
                                     "sdpMid": candidate.sdpMid,
                                     "sdpMLineIndex": candidate.sdpMLineIndex,
-                                    "foundation": candidate.foundation,
-                                    "priority": candidate.priority,
-                                    "ip": candidate.address,
-                                    "port": candidate.port,
-                                    "protocol": candidate.protocol,
-                                    "type": candidate.type,
                                 },
                             }
                         )
@@ -171,7 +168,7 @@ class PiClient:
 
             async for message in ws:
                 data = json.loads(message)
-                print(f"Received message: {data}")
+                LOG.info("Received message: %s", data)
 
                 if data["type"] == "offer":
                     await self.pc.setRemoteDescription(
@@ -186,7 +183,6 @@ class PiClient:
                     answer = await self.pc.createAnswer()
 
                     await self.pc.setLocalDescription(answer)
-                    print(self.pc.localDescription.type)
                     await self.ws.send(
                         json.dumps(
                             {
@@ -195,10 +191,16 @@ class PiClient:
                             }
                         )
                     )
-                    print("Answer sent successfully")
+                    LOG.info("Answer sent successfully")
 
-                elif data["type"] == "ice":
-                    await self.pc.addIceCandidate(data["candidate"])
+                elif data["type"] == "ice" and data.get("candidate"):
+                    c = data["candidate"]
+                    ice_candidate = RTCIceCandidate(
+                        sdpMid=c["sdpMid"],
+                        sdpMLineIndex=c["sdpMLineIndex"],
+                        candidate=c["candidate"],
+                    )
+                    await self.pc.addIceCandidate(ice_candidate)
 
     # =========================
     # Lifecycle

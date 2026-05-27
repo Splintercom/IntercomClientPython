@@ -63,7 +63,7 @@ class TestClient:
             if track.kind == "video":
                 self.remote_video = track
 
-        additional_headers = {"Authorization": "Bearer f{self.access_code}"}
+        additional_headers = {"Authorization": f"Bearer {self.access_token}"}
         async with websockets.connect(
             self.websocket_api_url, additional_headers=additional_headers
         ) as ws:

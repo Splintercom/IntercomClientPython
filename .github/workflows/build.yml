@@ -1,0 +1,141 @@
+name: Build .deb Package for Raspberry Pi
+
+on:
+  push:
+    branches: [master]
+
+env:
+  PKG_NAME: intercom-client
+  PKG_ARCH: arm64
+  PKG_DEPENDS: "libgstreamer1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, libv4l-0"
+
+jobs:
+  build:
+    runs-on: [self-hosted, ARM64]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install project dependencies
+        run: uv sync
+
+      - name: Install Nuitka
+        run: uv pip install nuitka
+
+      - name: Build native binary with Nuitka
+        run: >
+          uv run python -m nuitka
+          --standalone
+          --onefile
+          --output-filename=intercom-client
+          --output-dir=dist
+          --include-package=intercomclient
+          --include-package=aiortc
+          --include-package=av
+          --include-package=cv2
+          --include-package=numpy
+          --include-package=websockets
+          --include-package=requests
+          --include-package=jsonschema
+          --include-package=boto3
+          --include-package=botocore
+          --include-package=cryptography
+          --include-package=cffi
+          --include-package=jmespath
+          --include-package=transparenc_sdk
+          --include-package-data=opencv_python.libs
+          --include-package-data=cv2
+          main.py
+
+      - name: Read version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Package version: ${VERSION}"
+
+      - name: Build .deb package
+        run: |
+          set -euo pipefail
+
+          PKG_VERSION="${{ steps.version.outputs.value }}"
+          PKG_DIR="dist/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}"
+          DEB_FILE="${PKG_DIR}.deb"
+
+          # Create Debian package directory structure
+          mkdir -p "${PKG_DIR}/usr/local/bin"
+          mkdir -p "${PKG_DIR}/lib/systemd/system"
+          mkdir -p "${PKG_DIR}/etc/intercom-client"
+          mkdir -p "${PKG_DIR}/DEBIAN"
+
+          # Install the Nuitka binary
+          cp dist/intercom-client "${PKG_DIR}/usr/local/bin/"
+          chmod 755 "${PKG_DIR}/usr/local/bin/intercom-client"
+
+          # Write control file
+          cat > "${PKG_DIR}/DEBIAN/control" <<EOF
+          Package: ${PKG_NAME}
+          Version: ${PKG_VERSION}
+          Section: net
+          Priority: optional
+          Architecture: ${PKG_ARCH}
+          Depends: ${PKG_DEPENDS}
+          Maintainer: Intercom Team
+          Description: Intercom Pi client for WebRTC live streaming
+           Raspberry Pi client that connects to the intercom signaling server
+           and streams live video via WebRTC.
+          EOF
+
+          # Create environment configuration placeholder
+          cat > "${PKG_DIR}/etc/intercom-client/env" <<EOF
+          # Intercom Client Configuration
+          # Set your environment variables here — these are sourced by the systemd service.
+          #
+          # OAUTH_CLIENT_ID=your_client_id
+          # OAUTH_CLIENT_SECRET=your_client_secret
+          # VIDEO_SOURCE=0
+          # TOKEN_FILE_PATH=/home/pi/.config/intercom-client/tokens.json
+          # WEBSOCKET_API_BASE_URL=wss://your-server.com/ws/live_stream
+          # HTTP_API_BASE_URL=https://your-server.com
+          EOF
+
+          # Write systemd service unit
+          cat > "${PKG_DIR}/lib/systemd/system/intercom-client.service" <<EOF
+          [Unit]
+          Description=Intercom Pi Client
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=pi
+          Group=pi
+          EnvironmentFile=-/etc/intercom-client/env
+          ExecStart=/usr/local/bin/intercom-client
+          Restart=on-failure
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Build the .deb package
+          dpkg-deb --build "${PKG_DIR}"
+
+          echo "--- Built package ---"
+          ls -lh "${DEB_FILE}"
+          echo ""
+          echo "--- Package contents ---"
+          dpkg-deb --contents "${DEB_FILE}"
+          echo ""
+          echo "--- Package info ---"
+          dpkg-deb --info "${DEB_FILE}"
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: intercom-client-deb
+          path: dist/intercom-client_*.deb
+          retention-days: 30
