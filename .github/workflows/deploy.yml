@@ -19,7 +19,7 @@ env:
 jobs:
   deploy:
     name: Install on Raspberry Pi
-    runs-on: ["self-hosted", "ARM64"]
+    runs-on: ["self-hosted", "pi4"]
     if: >
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'workflow_dispatch')
