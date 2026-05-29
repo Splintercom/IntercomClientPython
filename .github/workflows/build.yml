@@ -83,7 +83,7 @@ jobs:
       - name: Update pyproject.toml version
         run: |
           NEW_VERSION="${{ steps.semver.outputs.new_version }}"
-          sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" pyproject.toml
+          sed -i 's/^version = ".*"/version = "'"${NEW_VERSION}"'"/' pyproject.toml
           echo "Updated pyproject.toml to ${NEW_VERSION}"
           grep "^version" pyproject.toml
 
