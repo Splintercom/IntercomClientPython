@@ -30,9 +30,10 @@ jobs:
           set -euo pipefail
 
           CURRENT_VERSION=$(python3 -c "
-          import tomllib
-          with open('pyproject.toml', 'rb') as f:
-              print(tomllib.load(f)['project']['version'])
+          import re
+          with open('pyproject.toml') as f:
+              m = re.search(r'^version\s*=\s*\"([^\"]+)\"', f.read(), re.MULTILINE)
+              print(m.group(1))
           ")
           echo "Current version: ${CURRENT_VERSION}"
 
