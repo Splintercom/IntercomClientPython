@@ -1,266 +1,48 @@
-name: Build .deb Package for Raspberry Pi
+name: Build and Push Docker Image
 
 on:
   push:
-    branches: [master]
+    branches:
+      - master
 
-permissions:
-  contents: write
-
-env:
-  PKG_NAME: intercom-client
-  PKG_ARCH: arm64
-  PKG_DEPENDS: "libgstreamer1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, libv4l-0"
+concurrency:
+  group: build-client
+  cancel-in-progress: false
 
 jobs:
-  bump:
-    name: Bump version
+  build-and-push:
     runs-on: ubuntu-22.04-arm
-    outputs:
-      new_version: ${{ steps.semver.outputs.new_version }}
+
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Determine next version from conventional commits
-        id: semver
+      - name: Log in to private Docker registry
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login docker.kmanning.ie:5000 -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build and push
         run: |
-          set -euo pipefail
+          IMAGE=docker.kmanning.ie:5000/intercom-client
 
-          CURRENT_VERSION=$(python3 -c "
+          # Collect tags
+          TAGS="-t $IMAGE:latest -t $IMAGE:${{ github.sha }}"
+
+          # Add semver tag from pyproject.toml
+          VERSION=$(python3 -c "
           import re
           with open('pyproject.toml') as f:
               m = re.search(r'^version\s*=\s*\"([^\"]+)\"', f.read(), re.MULTILINE)
               print(m.group(1))
           ")
-          echo "Current version: ${CURRENT_VERSION}"
+          TAGS="$TAGS -t $IMAGE:v$VERSION"
 
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT_VERSION}"
+          docker build \
+            -f Dockerfile \
+            $TAGS \
+            .
 
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:v$VERSION"
 
-          if [ -z "${LAST_TAG}" ]; then
-            echo "No existing tags — analyzing all commits"
-            COMMITS=$(git log --format='%s')
-          else
-            echo "Last tag: ${LAST_TAG}"
-            COMMITS=$(git log "${LAST_TAG}"..HEAD --format='%s')
-          fi
-
-          BUMP="patch"
-          while IFS= read -r subject; do
-            # Major: breaking change via ! suffix
-            if echo "$subject" | grep -qE '^[a-zA-Z]+(\([^)]+\))?!:'; then
-              BUMP="major"
-              break
-            fi
-            # Major: BREAKING CHANGE in commit body
-            HASH=$(git log --format='%H %s' | grep -F "${subject}" | head -1 | awk '{print $1}')
-            if [ -n "${HASH}" ] && git log -1 --format='%B' "${HASH}" | grep -q 'BREAKING CHANGE'; then
-              BUMP="major"
-              break
-            fi
-            # Minor: feat commits
-            if [ "${BUMP}" != "major" ] && echo "$subject" | grep -qE '^feat(\([^)]+\))?:'; then
-              BUMP="minor"
-            fi
-          done <<< "${COMMITS}"
-
-          echo "Bump type: ${BUMP}"
-
-          case "${BUMP}" in
-            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH + 1)) ;;
-          esac
-
-          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          echo "New version: ${NEW_VERSION}"
-          echo "new_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Update pyproject.toml version
-        run: |
-          NEW_VERSION="${{ steps.semver.outputs.new_version }}"
-          sed -i 's/^version = ".*"/version = "'"${NEW_VERSION}"'"/' pyproject.toml
-          echo "Updated pyproject.toml to ${NEW_VERSION}"
-          grep "^version" pyproject.toml
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Commit version bump and push tag
-        run: |
-          NEW_VERSION="${{ steps.semver.outputs.new_version }}"
-          git add pyproject.toml
-          git commit -m "chore: bump version to ${NEW_VERSION}"
-          git tag "v${NEW_VERSION}"
-          git push origin HEAD
-          git push origin "v${NEW_VERSION}"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.semver.outputs.new_version }}
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  test:
-    name: Run tests
-    needs: bump
-    runs-on: ubuntu-22.04-arm
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: v${{ needs.bump.outputs.new_version }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Run tests
-        run: uv run pytest
-
-  build:
-    name: Build .deb
-    needs: [test, bump]
-    runs-on: ubuntu-22.04-arm
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: v${{ needs.bump.outputs.new_version }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Install project dependencies
-        run: uv sync
-
-      - name: Install Nuitka
-        run: uv pip install nuitka
-
-      - name: Cache Nuitka build output
-        uses: actions/cache@v4
-        with:
-          path: |
-            dist/
-            build/
-            main.build/
-            main.dist/
-            main.onefile-build/
-          key: nuitka-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'main.py', 'intercomclient/**/*.py') }}
-
-      - name: Build native binary with Nuitka
-        run: >
-          uv run python -m nuitka
-          --standalone
-          --onefile
-          --output-filename=intercom-client
-          --output-dir=dist
-          --include-package=intercomclient
-          --include-package=aiortc
-          --include-package=av
-          --include-package=cv2
-          --include-package=numpy
-          --include-package=websockets
-          --include-package=requests
-          --include-package=jsonschema
-          --include-package=boto3
-          --include-package=botocore
-          --include-package=cryptography
-          --include-package=cffi
-          --include-package=jmespath
-          --include-package=transparenc_sdk
-          --include-package-data=opencv_python.libs
-          --include-package-data=cv2
-          main.py
-
-      - name: Build .deb package
-        run: |
-          set -euo pipefail
-
-          PKG_VERSION="${{ needs.bump.outputs.new_version }}"
-          PKG_DIR="dist/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}"
-          DEB_FILE="${PKG_DIR}.deb"
-
-          mkdir -p "${PKG_DIR}/usr/local/bin"
-          mkdir -p "${PKG_DIR}/lib/systemd/system"
-          mkdir -p "${PKG_DIR}/etc/intercom-client"
-          mkdir -p "${PKG_DIR}/DEBIAN"
-
-          cp dist/intercom-client "${PKG_DIR}/usr/local/bin/"
-          chmod 755 "${PKG_DIR}/usr/local/bin/intercom-client"
-
-          cat > "${PKG_DIR}/DEBIAN/control" <<EOF
-          Package: ${PKG_NAME}
-          Version: ${PKG_VERSION}
-          Section: net
-          Priority: optional
-          Architecture: ${PKG_ARCH}
-          Depends: ${PKG_DEPENDS}
-          Maintainer: Intercom Team
-          Description: Intercom Pi client for WebRTC live streaming
-           Raspberry Pi client that connects to the intercom signaling server
-           and streams live video via WebRTC.
-          EOF
-
-          cat > "${PKG_DIR}/etc/intercom-client/env" <<EOF
-          # Intercom Client Configuration
-          # Set your environment variables here — these are sourced by the systemd service.
-          #
-          # OAUTH_CLIENT_ID=your_client_id
-          # OAUTH_CLIENT_SECRET=your_client_secret
-          # VIDEO_SOURCE=0
-          # TOKEN_FILE_PATH=/home/pi/.config/intercom-client/tokens.json
-          # WEBSOCKET_API_BASE_URL=wss://your-server.com/ws/live_stream
-          # HTTP_API_BASE_URL=https://your-server.com
-          EOF
-
-          cat > "${PKG_DIR}/lib/systemd/system/intercom-client.service" <<EOF
-          [Unit]
-          Description=Intercom Pi Client
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          User=pi
-          Group=pi
-          EnvironmentFile=-/etc/intercom-client/env
-          ExecStart=/usr/local/bin/intercom-client
-          Restart=on-failure
-          RestartSec=10
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-
-          dpkg-deb --build "${PKG_DIR}"
-
-          echo "--- Built package ---"
-          ls -lh "${DEB_FILE}"
-          echo ""
-          echo "--- Package contents ---"
-          dpkg-deb --contents "${DEB_FILE}"
-          echo ""
-          echo "--- Package info ---"
-          dpkg-deb --info "${DEB_FILE}"
-
-      - name: Upload .deb artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: intercom-client-deb
-          path: dist/intercom-client_*.deb
-          retention-days: 30
+          echo "Pushed: $IMAGE:latest, $IMAGE:${{ github.sha }}, $IMAGE:v$VERSION"
