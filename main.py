@@ -5,7 +5,10 @@ import signal
 from datetime import UTC, datetime, timedelta
 
 import websockets
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCPeerConnection,
+    RTCSessionDescription,
+)
 from aiortc.sdp import candidate_from_sdp
 from requests import HTTPError
 
@@ -131,7 +134,14 @@ class PiClient:
         if old_pc:
             await old_pc.close()
 
-        pc = RTCPeerConnection()
+        pc = RTCPeerConnection(
+            configuration={
+                "iceServers": [
+                    {"urls": "stun:stun.l.google.com:19302"},
+                    {"urls": "stun:stun1.l.google.com:19302"},
+                ]
+            }
+        )
         self.pc = pc
 
         @pc.on("connectionstatechange")
