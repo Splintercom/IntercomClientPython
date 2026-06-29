@@ -5,7 +5,8 @@ import signal
 from datetime import UTC, datetime, timedelta
 
 import websockets
-from aiortc import RTCIceCandidate, RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc.sdp import candidate_from_sdp
 from requests import HTTPError
 
 from intercomclient.camera_video_stream_track import CameraVideoStreamTrack
@@ -120,20 +121,47 @@ class PiClient:
     # =========================
 
     async def setup_peer_connection(self):
-        if self.pc:
-            await self.pc.close()
-        self.pc = RTCPeerConnection()
+        # Null out self.pc before closing the old one so that the stale
+        # "closed" connectionstatechange event doesn't see itself as current
+        # and close the active signaling WebSocket.
+        old_pc = self.pc
+        self.pc = None
+        if old_pc:
+            await old_pc.close()
 
-        @self.pc.on("connectionstatechange")
+        pc = RTCPeerConnection()
+        self.pc = pc
+
+        @pc.on("connectionstatechange")
         async def on_connectionstatechange():
-            LOG.info("WebRTC state: %s", self.pc.connectionState)
-            if self.pc.connectionState == "failed":
-                await self.shutdown()
-            elif self.pc.connectionState == "closed":
-                # Remote peer disconnected; close WebSocket to break out of
-                # the signaling loop so run() can reconnect.
-                if self.ws:
-                    await self.ws.close()
+            if pc is not self.pc:
+                return  # stale event from a replaced PC
+            LOG.info("WebRTC state: %s", pc.connectionState)
+            if pc.connectionState == "failed":
+                # Reset the PC so we're ready for the next offer.
+                # The signaling WebSocket stays alive — don't close it here.
+                await self.setup_peer_connection()
+                self._register_ice_handler()
+
+    def _register_ice_handler(self):
+        pc = self.pc
+
+        @pc.on("icecandidate")
+        async def on_icecandidate(candidate):
+            if pc is not self.pc:
+                return
+            if candidate is not None:
+                LOG.info("ICE candidate generated: %s", candidate)
+                await self.ws.send(
+                    json.dumps(
+                        {
+                            "type": "candidate",
+                            "candidate": candidate.candidate,
+                            "sdpMid": candidate.sdpMid,
+                            "sdpMLineIndex": candidate.sdpMLineIndex,
+                        }
+                    )
+                )
 
     async def signaling_loop(self):
         token_store = self.token_store.load_tokens()
@@ -155,21 +183,7 @@ class PiClient:
             LOG.info("Connected to signaling server")
 
             await self.setup_peer_connection()
-
-            @self.pc.on("icecandidate")
-            async def on_icecandidate(candidate):
-                LOG.info("ICE candidate generated: %s", candidate)
-                if candidate is not None:
-                    await self.ws.send(
-                        json.dumps(
-                            {
-                                "type": "candidate",
-                                "candidate": candidate.candidate,
-                                "sdpMid": candidate.sdpMid,
-                                "sdpMLineIndex": candidate.sdpMLineIndex,
-                            }
-                        )
-                    )
+            self._register_ice_handler()
 
             async for message in ws:
                 data = json.loads(message)
@@ -206,22 +220,24 @@ class PiClient:
                     LOG.info("Answer sent successfully")
 
                 elif data["type"] in ("ice", "candidate") and data.get("candidate"):
-                    ice_candidate = RTCIceCandidate(
-                        sdpMid=data.get("sdpMid"),
-                        sdpMLineIndex=data.get("sdpMLineIndex"),
-                        candidate=data["candidate"],
-                    )
+                    sdp_str = data["candidate"]
+                    if sdp_str.startswith("candidate:"):
+                        sdp_str = sdp_str[len("candidate:") :]
+                    ice_candidate = candidate_from_sdp(sdp_str)
+                    ice_candidate.sdpMid = data.get("sdpMid")
+                    ice_candidate.sdpMLineIndex = data.get("sdpMLineIndex")
                     await self.pc.addIceCandidate(ice_candidate)
 
                 elif (
                     data["type"] == "status"
                     and data.get("event") == "peer_disconnected"
+                    and data.get("peer_type") != "device"
                 ):
                     LOG.info(
-                        "Remote peer disconnected; closing WebSocket to trigger reconnect"
+                        "Viewer disconnected; resetting peer connection for new offer"
                     )
-                    if self.ws:
-                        await self.ws.close()
+                    await self.setup_peer_connection()
+                    self._register_ice_handler()
 
     # =========================
     # Lifecycle

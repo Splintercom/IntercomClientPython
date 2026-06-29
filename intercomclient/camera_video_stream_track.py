@@ -21,12 +21,18 @@ class CameraVideoStreamTrack(VideoStreamTrack):
         self.segment_number = 0
         super().__init__()
 
+    def stop(self):
+        super().stop()
+        if self.capture.isOpened():
+            self.capture.release()
+
     async def recv(self):
         pts, time_base = await self.next_timestamp()
-        ret, frame = self.capture.read()
-        if not ret:
+        while True:
+            ret, frame = self.capture.read()
+            if ret:
+                break
             await asyncio.sleep(1 / self.target_fps)
-            return await self.recv()
 
         frame = av.VideoFrame.from_ndarray(frame, format="bgr24")
         frame.pts = pts
