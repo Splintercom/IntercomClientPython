@@ -272,7 +272,7 @@ jobs:
         run: |
           IMAGE=docker.kmanning.ie:5000/intercom-python-client
           docker build \
-            --build-arg APP_VERSION="$TAG" \
+            --build-arg APP_VERSION="${{ needs.bump.outputs.new_version }}" \
             -f Dockerfile \
             -t "$IMAGE:latest" \
             -t "$IMAGE:${{ github.sha }}" \
