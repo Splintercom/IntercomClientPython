@@ -173,15 +173,16 @@ jobs:
         run: |
           IMAGE=docker.kmanning.ie:5000/intercom-python-client
           APP_VERSION=$(cat VERSION)
+          DOCKER_TAG=$(echo "$APP_VERSION" | tr '+' '-')
 
           docker build \
             --build-arg APP_VERSION="$APP_VERSION" \
             -f Dockerfile \
             -t "$IMAGE:latest" \
             -t "$IMAGE:${{ github.sha }}" \
-            -t "$IMAGE:$APP_VERSION" \
+            -t "$IMAGE:$DOCKER_TAG" \
             .
 
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:$APP_VERSION"
+          docker push "$IMAGE:$DOCKER_TAG"
