@@ -13,110 +13,11 @@ env:
   PKG_DEPENDS: "libgstreamer1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, libv4l-0"
 
 jobs:
-  bump:
-    name: Bump version
-    runs-on: ubuntu-22.04-arm
-    outputs:
-      new_version: ${{ steps.semver.outputs.new_version }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Determine next version from conventional commits
-        id: semver
-        run: |
-          set -euo pipefail
-
-          CURRENT_VERSION=$(python3 -c "
-          import re
-          with open('pyproject.toml') as f:
-              m = re.search(r'^version\s*=\s*\"([^\"]+)\"', f.read(), re.MULTILINE)
-              print(m.group(1))
-          ")
-          echo "Current version: ${CURRENT_VERSION}"
-
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT_VERSION}"
-
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-
-          if [ -z "${LAST_TAG}" ]; then
-            echo "No existing tags — analyzing all commits"
-            COMMITS=$(git log --format='%s')
-          else
-            echo "Last tag: ${LAST_TAG}"
-            COMMITS=$(git log "${LAST_TAG}"..HEAD --format='%s')
-          fi
-
-          BUMP="patch"
-          while IFS= read -r subject; do
-            # Major: breaking change via ! suffix
-            if echo "$subject" | grep -qE '^[a-zA-Z]+(\([^)]+\))?!:'; then
-              BUMP="major"
-              break
-            fi
-            # Major: BREAKING CHANGE in commit body
-            HASH=$(git log --format='%H %s' | grep -F "${subject}" | head -1 | awk '{print $1}')
-            if [ -n "${HASH}" ] && git log -1 --format='%B' "${HASH}" | grep -q 'BREAKING CHANGE'; then
-              BUMP="major"
-              break
-            fi
-            # Minor: feat commits
-            if [ "${BUMP}" != "major" ] && echo "$subject" | grep -qE '^feat(\([^)]+\))?:'; then
-              BUMP="minor"
-            fi
-          done <<< "${COMMITS}"
-
-          echo "Bump type: ${BUMP}"
-
-          case "${BUMP}" in
-            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH + 1)) ;;
-          esac
-
-          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          echo "New version: ${NEW_VERSION}"
-          echo "new_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Update pyproject.toml version
-        run: |
-          NEW_VERSION="${{ steps.semver.outputs.new_version }}"
-          sed -i 's/^version = ".*"/version = "'"${NEW_VERSION}"'"/' pyproject.toml
-          echo "Updated pyproject.toml to ${NEW_VERSION}"
-          grep "^version" pyproject.toml
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Commit version bump and push tag
-        run: |
-          NEW_VERSION="${{ steps.semver.outputs.new_version }}"
-          git add pyproject.toml
-          git commit -m "chore: bump version to ${NEW_VERSION}"
-          git tag "v${NEW_VERSION}"
-          git push origin HEAD
-          git push origin "v${NEW_VERSION}"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.semver.outputs.new_version }}
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   test:
     name: Run tests
-    needs: bump
     runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: v${{ needs.bump.outputs.new_version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -132,12 +33,10 @@ jobs:
 
   build:
     name: Build .deb
-    needs: [test, bump]
+    needs: test
     runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: v${{ needs.bump.outputs.new_version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -191,7 +90,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          PKG_VERSION="${{ needs.bump.outputs.new_version }}"
+          APP_VERSION=$(cat VERSION)
+          # Debian package versions can't contain '+'; '~' sorts correctly as pre-release
+          PKG_VERSION=$(echo "$APP_VERSION" | tr '+' '~')
           PKG_DIR="dist/${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}"
           DEB_FILE="${PKG_DIR}.deb"
 
@@ -271,11 +172,16 @@ jobs:
       - name: Build and push Docker image
         run: |
           IMAGE=docker.kmanning.ie:5000/intercom-python-client
+          APP_VERSION=$(cat VERSION)
+
           docker build \
-            --build-arg APP_VERSION="${{ needs.bump.outputs.new_version }}" \
+            --build-arg APP_VERSION="$APP_VERSION" \
             -f Dockerfile \
             -t "$IMAGE:latest" \
             -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:$APP_VERSION" \
             .
+
           docker push "$IMAGE:latest"
-          docker push "$IMAGE:${{ github.sha }}"  
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:$APP_VERSION"
