@@ -16,6 +16,7 @@ from intercomclient.device_authorization import (
     poll_for_token,
     refresh_tokens,
 )
+from intercomclient.telemetry import TelemetryClient
 from intercomclient.token_store import TokenStatus, TokenStore
 
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +27,7 @@ class PiClient:
     def __init__(self, config: Config):
         self.config = config
         self.token_store = TokenStore(config)
+        self.telemetry = TelemetryClient(config, self.token_store)
         self.pc: RTCPeerConnection | None = None
         self.ws = None
         self.running = True
@@ -136,8 +138,14 @@ class PiClient:
         async def on_connectionstatechange():
             if pc is not self.pc:
                 return  # stale event from a replaced PC
-            LOG.info("WebRTC state: %s", pc.connectionState)
-            if pc.connectionState == "failed":
+            state = pc.connectionState
+            LOG.info("WebRTC state: %s", state)
+            if state == "connected":
+                await asyncio.to_thread(self.telemetry.send, "streaming")
+            elif state == "failed":
+                await asyncio.to_thread(
+                    self.telemetry.send, "error", "WebRTC connection failed", "WARNING"
+                )
                 # Reset the PC so we're ready for the next offer.
                 # The signaling WebSocket stays alive — don't close it here.
                 await self.setup_peer_connection()
@@ -184,6 +192,7 @@ class PiClient:
 
             await self.setup_peer_connection()
             self._register_ice_handler()
+            await asyncio.to_thread(self.telemetry.send, "connected")
 
             async for message in ws:
                 data = json.loads(message)
@@ -204,6 +213,9 @@ class PiClient:
                     except Exception as e:
                         LOG.warning(
                             "Camera unavailable (%s), sending answer without video", e
+                        )
+                        await asyncio.to_thread(
+                            self.telemetry.send, "error", str(e), "WARNING"
                         )
 
                     answer = await self.pc.createAnswer()
@@ -236,25 +248,39 @@ class PiClient:
                     LOG.info(
                         "Viewer disconnected; resetting peer connection for new offer"
                     )
+                    await asyncio.to_thread(
+                        self.telemetry.send, "disconnected", "Viewer disconnected"
+                    )
                     await self.setup_peer_connection()
                     self._register_ice_handler()
+                    await asyncio.to_thread(self.telemetry.send, "connected")
 
     # =========================
     # Lifecycle
     # =========================
 
+    async def _heartbeat_loop(self):
+        while self.running:
+            await asyncio.sleep(30)
+            await asyncio.to_thread(self.telemetry.send, "heartbeat")
+
     async def run(self):
+        asyncio.create_task(self._heartbeat_loop())
         while self.running:
             try:
                 await self.ensure_valid_tokens()
                 await self.signaling_loop()
             except Exception as e:
                 LOG.exception("Client error: %s", e)
+                await asyncio.to_thread(self.telemetry.send, "error", str(e), "ERROR")
                 await asyncio.sleep(5)
 
     async def shutdown(self):
         LOG.info("Shutting down client...")
         self.running = False
+        await asyncio.to_thread(
+            self.telemetry.send, "disconnected", "Client shutting down"
+        )
 
         if self.pc:
             await self.pc.close()
