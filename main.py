@@ -34,7 +34,7 @@ class PiClient:
         self.config = config
         self.token_store = TokenStore(config)
         self.telemetry = TelemetryClient(config, self.token_store)
-        self.pc: RTCPeerConnection | None = None
+        self.peer_connections: dict[str, RTCPeerConnection] = {}
         self.ws = None
         self.running = True
         self.turn_credentials: dict | None = None
@@ -129,16 +129,8 @@ class PiClient:
     # WebRTC + Signaling
     # =========================
 
-    async def setup_peer_connection(self):
-        # Null out self.pc before closing the old one so that the stale
-        # "closed" connectionstatechange event doesn't see itself as current
-        # and close the active signaling WebSocket.
-        old_pc = self.pc
-        self.pc = None
-        if old_pc:
-            await old_pc.close()
-
-        ice_servers = [
+    def _build_ice_servers(self) -> list[RTCIceServer]:
+        servers = [
             RTCIceServer(urls="stun:stun.l.google.com:19302"),
             RTCIceServer(urls="stun:stun1.l.google.com:19302"),
         ]
@@ -147,42 +139,54 @@ class PiClient:
         turn_username = creds.get("username") or self.config.turn_username
         turn_credential = creds.get("credential") or self.config.turn_credential
         if turn_url and turn_username and turn_credential:
-            ice_servers.append(
+            servers.append(
                 RTCIceServer(
                     urls=turn_url,
                     username=turn_username,
                     credential=turn_credential,
                 )
             )
-        pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
-        self.pc = pc
+        return servers
+
+    async def setup_peer_connection(self, viewer_channel: str) -> RTCPeerConnection:
+        # Close existing PC for this viewer if there is one
+        old_pc = self.peer_connections.pop(viewer_channel, None)
+        if old_pc:
+            await old_pc.close()
+
+        pc = RTCPeerConnection(
+            configuration=RTCConfiguration(iceServers=self._build_ice_servers())
+        )
+        self.peer_connections[viewer_channel] = pc
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange():
-            if pc is not self.pc:
-                return  # stale event from a replaced PC
+            if self.peer_connections.get(viewer_channel) is not pc:
+                return
             state = pc.connectionState
-            LOG.info("WebRTC state: %s", state)
+            LOG.info("WebRTC state for %s: %s", viewer_channel, state)
             if state == "connected":
                 await asyncio.to_thread(self.telemetry.send, "streaming")
             elif state == "failed":
                 await asyncio.to_thread(
                     self.telemetry.send, "error", "WebRTC connection failed", "WARNING"
                 )
-                # Reset the PC so we're ready for the next offer.
-                # The signaling WebSocket stays alive — don't close it here.
-                await self.setup_peer_connection()
-                self._register_ice_handler()
+                await self.setup_peer_connection(viewer_channel)
+                self._register_ice_handler(viewer_channel)
 
-    def _register_ice_handler(self):
-        pc = self.pc
+        return pc
+
+    def _register_ice_handler(self, viewer_channel: str):
+        pc = self.peer_connections[viewer_channel]
 
         @pc.on("icecandidate")
         async def on_icecandidate(candidate):
-            if pc is not self.pc:
+            if self.peer_connections.get(viewer_channel) is not pc:
                 return
             if candidate is not None:
-                LOG.info("ICE candidate generated: %s", candidate)
+                LOG.info(
+                    "ICE candidate generated for %s: %s", viewer_channel, candidate
+                )
                 await self.ws.send(
                     json.dumps(
                         {
@@ -190,6 +194,7 @@ class PiClient:
                             "candidate": candidate.candidate,
                             "sdpMid": candidate.sdpMid,
                             "sdpMLineIndex": candidate.sdpMLineIndex,
+                            "viewer_channel": viewer_channel,
                         }
                     )
                 )
@@ -199,6 +204,10 @@ class PiClient:
         access_token = token_store["access"]["token_value"]
         device_code = token_store["device_code"]
 
+        self.turn_credentials = await asyncio.to_thread(
+            fetch_turn_credentials, self.config.http_api_base_url, access_token
+        )
+
         headers = {"Authorization": f"Bearer {access_token}"}
 
         base = self.config.websocket_api_base_url.rstrip("/")
@@ -206,19 +215,12 @@ class PiClient:
             base = f"{base}/ws/live_stream"
         websocket_url = f"{base}/{device_code}/"
 
-        self.turn_credentials = await asyncio.to_thread(
-            fetch_turn_credentials, self.config.http_api_base_url, access_token
-        )
-
         async with websockets.connect(
             websocket_url,
             additional_headers=headers,
         ) as ws:
             self.ws = ws
             LOG.info("Connected to signaling server")
-
-            await self.setup_peer_connection()
-            self._register_ice_handler()
             await asyncio.to_thread(self.telemetry.send, "connected")
 
             async for message in ws:
@@ -226,16 +228,20 @@ class PiClient:
                 LOG.info("Received message: %s", data)
 
                 if data["type"] == "offer":
-                    await self.pc.setRemoteDescription(
+                    viewer_channel = data.get("viewer_channel", "")
+                    pc = await self.setup_peer_connection(viewer_channel)
+                    self._register_ice_handler(viewer_channel)
+
+                    await pc.setRemoteDescription(
                         RTCSessionDescription(
                             sdp=data["sdp"],
-                            type=data["type"],
+                            type="offer",
                         )
                     )
 
                     try:
                         camera_track = CameraVideoStreamTrack(self.config)
-                        self.pc.addTrack(camera_track)
+                        pc.addTrack(camera_track)
                         LOG.info("Camera track added successfully")
                     except Exception as e:
                         LOG.warning(
@@ -245,42 +251,50 @@ class PiClient:
                             self.telemetry.send, "error", str(e), "WARNING"
                         )
 
-                    answer = await self.pc.createAnswer()
-
-                    await self.pc.setLocalDescription(answer)
+                    answer = await pc.createAnswer()
+                    await pc.setLocalDescription(answer)
                     await self.ws.send(
                         json.dumps(
                             {
-                                "type": self.pc.localDescription.type,
-                                "sdp": self.pc.localDescription.sdp,
+                                "type": pc.localDescription.type,
+                                "sdp": pc.localDescription.sdp,
+                                "viewer_channel": viewer_channel,
                             }
                         )
                     )
-                    LOG.info("Answer sent successfully")
+                    LOG.info("Answer sent to viewer %s", viewer_channel)
 
                 elif data["type"] in ("ice", "candidate") and data.get("candidate"):
+                    viewer_channel = data.get("viewer_channel", "")
+                    pc = self.peer_connections.get(viewer_channel)
+                    if not pc:
+                        LOG.warning(
+                            "Received candidate for unknown viewer %s", viewer_channel
+                        )
+                        continue
                     sdp_str = data["candidate"]
                     if sdp_str.startswith("candidate:"):
                         sdp_str = sdp_str[len("candidate:") :]
                     ice_candidate = candidate_from_sdp(sdp_str)
                     ice_candidate.sdpMid = data.get("sdpMid")
                     ice_candidate.sdpMLineIndex = data.get("sdpMLineIndex")
-                    await self.pc.addIceCandidate(ice_candidate)
+                    await pc.addIceCandidate(ice_candidate)
 
                 elif (
                     data["type"] == "status"
                     and data.get("event") == "peer_disconnected"
                     and data.get("peer_type") != "device"
                 ):
-                    LOG.info(
-                        "Viewer disconnected; resetting peer connection for new offer"
-                    )
+                    viewer_channel = data.get("viewer_channel", "")
+                    pc = self.peer_connections.pop(viewer_channel, None)
+                    if pc:
+                        await pc.close()
+                    LOG.info("Viewer %s disconnected", viewer_channel)
                     await asyncio.to_thread(
                         self.telemetry.send, "disconnected", "Viewer disconnected"
                     )
-                    await self.setup_peer_connection()
-                    self._register_ice_handler()
-                    await asyncio.to_thread(self.telemetry.send, "connected")
+                    if not self.peer_connections:
+                        await asyncio.to_thread(self.telemetry.send, "connected")
 
     # =========================
     # Lifecycle
@@ -309,8 +323,9 @@ class PiClient:
             self.telemetry.send, "disconnected", "Client shutting down"
         )
 
-        if self.pc:
-            await self.pc.close()
+        for pc in list(self.peer_connections.values()):
+            await pc.close()
+        self.peer_connections.clear()
 
         if self.ws:
             await self.ws.close()
