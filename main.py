@@ -23,6 +23,7 @@ from intercomclient.device_authorization import (
 )
 from intercomclient.telemetry import TelemetryClient
 from intercomclient.token_store import TokenStatus, TokenStore
+from intercomclient.turn import fetch_turn_credentials
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger("pi-client")
@@ -36,6 +37,7 @@ class PiClient:
         self.pc: RTCPeerConnection | None = None
         self.ws = None
         self.running = True
+        self.turn_credentials: dict | None = None
 
     # =========================
     # Token Management
@@ -140,16 +142,16 @@ class PiClient:
             RTCIceServer(urls="stun:stun.l.google.com:19302"),
             RTCIceServer(urls="stun:stun1.l.google.com:19302"),
         ]
-        if (
-            self.config.turn_url
-            and self.config.turn_username
-            and self.config.turn_credential
-        ):
+        creds = self.turn_credentials or {}
+        turn_url = creds.get("url") or self.config.turn_url
+        turn_username = creds.get("username") or self.config.turn_username
+        turn_credential = creds.get("credential") or self.config.turn_credential
+        if turn_url and turn_username and turn_credential:
             ice_servers.append(
                 RTCIceServer(
-                    urls=self.config.turn_url,
-                    username=self.config.turn_username,
-                    credential=self.config.turn_credential,
+                    urls=turn_url,
+                    username=turn_username,
+                    credential=turn_credential,
                 )
             )
         pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
@@ -203,6 +205,10 @@ class PiClient:
         if "/ws/live_stream" not in base:
             base = f"{base}/ws/live_stream"
         websocket_url = f"{base}/{device_code}/"
+
+        self.turn_credentials = await asyncio.to_thread(
+            fetch_turn_credentials, self.config.http_api_base_url, access_token
+        )
 
         async with websockets.connect(
             websocket_url,
