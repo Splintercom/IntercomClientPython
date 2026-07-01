@@ -52,11 +52,13 @@ ClientPython/
 - Signaling WebSocket is **never** closed by WebRTC state changes — only by unrecoverable signaling errors
 
 ### Video Capture (`intercomclient/camera_video_stream_track.py`)
-- `CameraVideoStreamTrack` extends `aiortc.VideoStreamTrack`
-- Uses `cv2.VideoCapture` to capture frames from camera source (default device `0`, configurable via `VIDEO_SOURCE`)
-- Converts frames to `av.VideoFrame` (BGR24 format) with proper PTS/time_base timestamps
-- `recv()` loops until a frame is captured (no recursion)
-- `stop()` releases `VideoCapture` to avoid device handle leaks when the PC is replaced
+- `cv2.VideoCapture` can only be opened **once** per process on this hardware. Multi-viewer support is handled by `SharedCameraSource`:
+  - Opens the capture device once; runs a `_read_loop` background task that reads frames and fan-outs to per-viewer `asyncio.Queue(maxsize=4)`.
+  - Subscribers call `subscribe(key) → Queue` / `unsubscribe(key)`. If a queue is full, the oldest frame is dropped (never blocks the read loop).
+  - Released via `stop()` when all viewers disconnect; recreated on next connection.
+- `CameraVideoStreamTrack` extends `aiortc.VideoStreamTrack`; subscribes to a `SharedCameraSource` on init, unsubscribes in `stop()`.
+- Converts frames to `av.VideoFrame` (BGR24 format) with proper PTS/time_base timestamps.
+- `PiClient._get_or_create_camera_source()` — lazily opens the camera; `_release_camera_if_idle()` — stops and nulls it when `peer_connections` is empty.
 
 ### Telemetry (`intercomclient/telemetry.py` — `TelemetryClient`)
 - `send(event, message="", level="INFO")` — synchronous; called via `asyncio.to_thread` from async contexts
@@ -135,3 +137,10 @@ devices:
 ## `.envrc`
 
 **Never modify `.envrc`.** It contains local-only developer environment config and must always reflect the developer's own setup.
+
+## CI/CD Observability
+
+Both workflows send a structured event to Honeycomb's Events API (`github-actions` dataset) at the end of every job (pass or fail). Fields: `workflow`, `job`, `status`, `duration_ms`, `sha`, `ref`, `actor`, `repository`, `run_id`, `run_number`, `commit_message`. Requires the `HONEYCOMB_API_KEY` GitHub Actions secret. Honeycomb failures are non-fatal.
+
+- `build-docker.yml` — one job (`build-and-push`), one event per run
+- `build-deb.yml` — two jobs (`test`, `build`), one event per job per run
