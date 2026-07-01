@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-22.04-arm
 
     steps:
+      - name: Record job start time
+        run: echo "JOB_START_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -37,3 +40,32 @@ jobs:
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:$DOCKER_TAG"
+
+      - name: Send CI metrics to Honeycomb
+        if: always()
+        env:
+          HONEYCOMB_API_KEY: ${{ secrets.HONEYCOMB_API_KEY }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          END_MS=$(date +%s%3N)
+          DURATION_MS=$((END_MS - JOB_START_MS))
+          COMMIT_MSG=$(git log -1 --pretty=format:%s 2>/dev/null || echo "")
+          curl -s -X POST "https://api.honeycomb.io/1/events/github-actions" \
+            -H "X-Honeycomb-Team: $HONEYCOMB_API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "X-Honeycomb-Event-Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -d "$(jq -cn \
+              --arg workflow "$GITHUB_WORKFLOW" \
+              --arg job "$GITHUB_JOB" \
+              --arg status "$JOB_STATUS" \
+              --argjson duration_ms "$DURATION_MS" \
+              --arg sha "$GITHUB_SHA" \
+              --arg ref "$GITHUB_REF_NAME" \
+              --arg actor "$GITHUB_ACTOR" \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --argjson run_id "$GITHUB_RUN_ID" \
+              --argjson run_number "$GITHUB_RUN_NUMBER" \
+              --arg commit_message "$COMMIT_MSG" \
+              '{workflow: $workflow, job: $job, status: $status, duration_ms: $duration_ms,
+                sha: $sha, ref: $ref, actor: $actor, repository: $repository,
+                run_id: $run_id, run_number: $run_number, commit_message: $commit_message}')" || true
