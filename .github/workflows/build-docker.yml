@@ -10,8 +10,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-22.04-arm
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Record job start time
@@ -23,23 +33,81 @@ jobs:
       - name: Log in to private Docker registry
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login docker.kmanning.ie:5000 -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Build and push Docker image
+      - name: Build and push arch-specific image
+        run: |
+          IMAGE=docker.kmanning.ie:5000/intercom-python-client
+          APP_VERSION=$(cat VERSION)
+
+          # Built natively on a runner matching each target arch (not cross-compiled via QEMU) —
+          # ClientPython pulls in compiled deps (aiortc, opencv) that are slow/flaky to build
+          # under emulation. Pushed under a per-arch tag; the publish-manifest job below combines
+          # both into the real published tags (latest/sha/version) as a multi-arch manifest list.
+          docker build \
+            --build-arg APP_VERSION="$APP_VERSION" \
+            -f Dockerfile \
+            -t "$IMAGE:${{ github.sha }}-${{ matrix.arch }}" \
+            .
+
+          docker push "$IMAGE:${{ github.sha }}-${{ matrix.arch }}"
+
+      - name: Send CI metrics to Honeycomb
+        if: always()
+        env:
+          HONEYCOMB_API_KEY: ${{ secrets.HONEYCOMB_API_KEY }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          END_MS=$(date +%s%3N)
+          DURATION_MS=$((END_MS - JOB_START_MS))
+          COMMIT_MSG=$(git log -1 --pretty=format:%s 2>/dev/null || echo "")
+          curl -s -X POST "https://api.honeycomb.io/1/events/github-actions" \
+            -H "X-Honeycomb-Team: $HONEYCOMB_API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "X-Honeycomb-Event-Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -d "$(jq -cn \
+              --arg workflow "$GITHUB_WORKFLOW" \
+              --arg job "build (${{ matrix.arch }})" \
+              --arg status "$JOB_STATUS" \
+              --argjson duration_ms "$DURATION_MS" \
+              --arg sha "$GITHUB_SHA" \
+              --arg ref "$GITHUB_REF_NAME" \
+              --arg actor "$GITHUB_ACTOR" \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --argjson run_id "$GITHUB_RUN_ID" \
+              --argjson run_number "$GITHUB_RUN_NUMBER" \
+              --arg commit_message "$COMMIT_MSG" \
+              '{workflow: $workflow, job: $job, status: $status, duration_ms: $duration_ms,
+                sha: $sha, ref: $ref, actor: $actor, repository: $repository,
+                run_id: $run_id, run_number: $run_number, commit_message: $commit_message}')" || true
+
+  publish-manifest:
+    needs: build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Record job start time
+        run: echo "JOB_START_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Log in to private Docker registry
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login docker.kmanning.ie:5000 -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push multi-arch manifest
         run: |
           IMAGE=docker.kmanning.ie:5000/intercom-python-client
           APP_VERSION=$(cat VERSION)
           DOCKER_TAG=$(echo "$APP_VERSION" | tr '+' '-')
 
-          docker build \
-            --build-arg APP_VERSION="$APP_VERSION" \
-            -f Dockerfile \
-            -t "$IMAGE:latest" \
-            -t "$IMAGE:${{ github.sha }}" \
-            -t "$IMAGE:$DOCKER_TAG" \
-            .
-
-          docker push "$IMAGE:latest"
-          docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:$DOCKER_TAG"
+          for TAG in latest "${{ github.sha }}" "$DOCKER_TAG"; do
+            docker buildx imagetools create \
+              -t "$IMAGE:$TAG" \
+              "$IMAGE:${{ github.sha }}-amd64" \
+              "$IMAGE:${{ github.sha }}-arm64"
+          done
 
       - name: Send CI metrics to Honeycomb
         if: always()
