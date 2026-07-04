@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  PKG_NAME: intercom-client
+  PKG_NAME: splintercom-client
   PKG_ARCH: arm64
   PKG_DEPENDS: "libgstreamer1.0-0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, libv4l-0"
 
@@ -95,16 +95,16 @@ jobs:
             main.build/
             main.dist/
             main.onefile-build/
-          key: nuitka-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'main.py', 'intercomclient/**/*.py') }}
+          key: nuitka-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'main.py', 'splintercomclient/**/*.py') }}
 
       - name: Build native binary with Nuitka
         run: >
           uv run python -m nuitka
           --standalone
           --onefile
-          --output-filename=intercom-client
+          --output-filename=splintercom-client
           --output-dir=dist
-          --include-package=intercomclient
+          --include-package=splintercomclient
           --include-package=aiortc
           --include-package=av
           --include-package=cv2
@@ -134,11 +134,11 @@ jobs:
 
           mkdir -p "${PKG_DIR}/usr/local/bin"
           mkdir -p "${PKG_DIR}/lib/systemd/system"
-          mkdir -p "${PKG_DIR}/etc/intercom-client"
+          mkdir -p "${PKG_DIR}/etc/splintercom-client"
           mkdir -p "${PKG_DIR}/DEBIAN"
 
-          cp dist/intercom-client "${PKG_DIR}/usr/local/bin/"
-          chmod 755 "${PKG_DIR}/usr/local/bin/intercom-client"
+          cp dist/splintercom-client "${PKG_DIR}/usr/local/bin/"
+          chmod 755 "${PKG_DIR}/usr/local/bin/splintercom-client"
 
           cat > "${PKG_DIR}/DEBIAN/control" <<EOF
           Package: ${PKG_NAME}
@@ -147,27 +147,27 @@ jobs:
           Priority: optional
           Architecture: ${PKG_ARCH}
           Depends: ${PKG_DEPENDS}
-          Maintainer: Intercom Team
-          Description: Intercom Pi client for WebRTC live streaming
-           Raspberry Pi client that connects to the intercom signaling server
+          Maintainer: Splintercom Team
+          Description: Splintercom Pi client for WebRTC live streaming
+           Raspberry Pi client that connects to the splintercom signaling server
            and streams live video via WebRTC.
           EOF
 
-          cat > "${PKG_DIR}/etc/intercom-client/env" <<EOF
-          # Intercom Client Configuration
+          cat > "${PKG_DIR}/etc/splintercom-client/env" <<EOF
+          # Splintercom Client Configuration
           # Set your environment variables here — these are sourced by the systemd service.
           #
           # OAUTH_CLIENT_ID=your_client_id
           # OAUTH_CLIENT_SECRET=your_client_secret
           # VIDEO_SOURCE=0
-          # TOKEN_FILE_PATH=/home/pi/.config/intercom-client/tokens.json
+          # TOKEN_FILE_PATH=/home/pi/.config/splintercom-client/tokens.json
           # WEBSOCKET_API_BASE_URL=wss://your-server.com/ws/live_stream
           # HTTP_API_BASE_URL=https://your-server.com
           EOF
 
-          cat > "${PKG_DIR}/lib/systemd/system/intercom-client.service" <<EOF
+          cat > "${PKG_DIR}/lib/systemd/system/splintercom-client.service" <<EOF
           [Unit]
-          Description=Intercom Pi Client
+          Description=Splintercom Pi Client
           After=network-online.target
           Wants=network-online.target
 
@@ -175,8 +175,8 @@ jobs:
           Type=simple
           User=pi
           Group=pi
-          EnvironmentFile=-/etc/intercom-client/env
-          ExecStart=/usr/local/bin/intercom-client
+          EnvironmentFile=-/etc/splintercom-client/env
+          ExecStart=/usr/local/bin/splintercom-client
           Restart=on-failure
           RestartSec=10
 
@@ -198,8 +198,8 @@ jobs:
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: intercom-client-deb
-          path: dist/intercom-client_*.deb
+          name: splintercom-client-deb
+          path: dist/splintercom-client_*.deb
           retention-days: 30
 
       - name: Send CI metrics to Honeycomb

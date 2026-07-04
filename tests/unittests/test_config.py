@@ -1,6 +1,6 @@
-"""Tests for intercomclient.config.
+"""Tests for splintercomclient.config.
 
-The conftest.py autouse fixture guarantees that intercom-related env vars
+The conftest.py autouse fixture guarantees that splintercom-related env vars
 are removed and modules are re-imported fresh before each test.
 """
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 def _config_cls(**overrides):
     """Import Config fresh and return an instance."""
-    from intercomclient.config import Config
+    from splintercomclient.config import Config
 
     return Config(**overrides)
 
@@ -27,7 +27,7 @@ class TestConfigDefaults:
         assert _config_cls().video_source == 0
 
     def test_default_output_dir(self):
-        assert _config_cls().output_dir_path == "/tmp/intercom_videos"
+        assert _config_cls().output_dir_path == "/tmp/splintercom_videos"
 
     def test_default_fourcc(self):
         assert _config_cls().fourcc == "XVID"
@@ -49,11 +49,11 @@ class TestConfigDefaults:
         # since the default is constructed via Path(...).expanduser() but only
         # if TOKEN_FILE_PATH env var is set. Otherwise the raw default is used.
         # The field default when TOKEN_FILE_PATH is unset:
-        # Path(os.getenv("TOKEN_FILE_PATH", "~/.config/intercomclient/tokens.json")).expanduser()
+        # Path(os.getenv("TOKEN_FILE_PATH", "~/.config/splintercomclient/tokens.json")).expanduser()
         # With empty string from getenv fallback: Path("~/.config/...").expanduser()
         assert (
             _config_cls().token_file_path
-            == Path("~/.config/intercomclient/tokens.json").expanduser()
+            == Path("~/.config/splintercomclient/tokens.json").expanduser()
         )
 
     def test_default_oauth_credentials_are_wrong(self, tmp_path, monkeypatch):
@@ -104,18 +104,18 @@ class TestConfigEnvOverrides:
 
 class TestLoadOauthCredentials:
     def test_returns_defaults_when_no_file_no_env(self, tmp_path, monkeypatch):
-        from intercomclient.config import load_oauth_credentials
+        from splintercomclient.config import load_oauth_credentials
 
         monkeypatch.setenv("HOME", str(tmp_path))
-        assert not (tmp_path / ".config" / "intercom-api" / "oauth.json").exists()
+        assert not (tmp_path / ".config" / "splintercom-api" / "oauth.json").exists()
         client_id, client_secret = load_oauth_credentials()
         assert client_id == "wrong"
         assert client_secret == "wrong"
 
     def test_reads_from_credentials_file(self, tmp_path, monkeypatch):
-        from intercomclient.config import load_oauth_credentials
+        from splintercomclient.config import load_oauth_credentials
 
-        creds_dir = tmp_path / ".config" / "intercom-api"
+        creds_dir = tmp_path / ".config" / "splintercom-api"
         creds_dir.mkdir(parents=True)
         (creds_dir / "oauth.json").write_text(
             '{"client_id": "from-file-id", "client_secret": "from-file-secret"}'
@@ -126,7 +126,7 @@ class TestLoadOauthCredentials:
         assert client_secret == "from-file-secret"
 
     def test_env_var_used_when_file_missing(self, tmp_path, monkeypatch):
-        from intercomclient.config import load_oauth_credentials
+        from splintercomclient.config import load_oauth_credentials
 
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("OAUTH_CLIENT_ID", "env-id")
@@ -136,9 +136,9 @@ class TestLoadOauthCredentials:
         assert client_secret == "env-secret"
 
     def test_file_takes_precedence_over_env(self, tmp_path, monkeypatch):
-        from intercomclient.config import load_oauth_credentials
+        from splintercomclient.config import load_oauth_credentials
 
-        creds_dir = tmp_path / ".config" / "intercom-api"
+        creds_dir = tmp_path / ".config" / "splintercom-api"
         creds_dir.mkdir(parents=True)
         (creds_dir / "oauth.json").write_text(
             '{"client_id": "file-id", "client_secret": "file-secret"}'
@@ -151,9 +151,9 @@ class TestLoadOauthCredentials:
         assert client_secret == "file-secret"
 
     def test_missing_keys_in_file_returns_wrong(self, tmp_path, monkeypatch):
-        from intercomclient.config import load_oauth_credentials
+        from splintercomclient.config import load_oauth_credentials
 
-        creds_dir = tmp_path / ".config" / "intercom-api"
+        creds_dir = tmp_path / ".config" / "splintercom-api"
         creds_dir.mkdir(parents=True)
         (creds_dir / "oauth.json").write_text('{"other": "data"}')
         monkeypatch.setenv("HOME", str(tmp_path))

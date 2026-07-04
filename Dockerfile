@@ -1,4 +1,4 @@
-# Production Dockerfile for Intercom ClientPython
+# Production Dockerfile for Splintercom ClientPython
 # Multi-stage: build deps → slim runtime image
 # Target: ARM64 (Raspberry Pi)
 

@@ -1,4 +1,4 @@
-from intercomclient.device import get_device_type, get_os_info
+from splintercomclient.device import get_device_type, get_os_info
 
 
 class TestGetOsInfo:

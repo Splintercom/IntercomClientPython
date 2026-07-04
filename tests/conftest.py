@@ -1,6 +1,6 @@
 """Shared test fixtures.
 
-Guarantees that intercomclient modules are never imported before
+Guarantees that splintercomclient modules are never imported before
 the test environment is fully controlled. This is critical because
 Config evaluates os.getenv() at class-definition time.
 """
@@ -9,8 +9,8 @@ import sys
 
 import pytest
 
-# These are the only env vars that intercomclient.config reads at import time.
-# We ensure they're absent BEFORE any intercomclient import happens.
+# These are the only env vars that splintercomclient.config reads at import time.
+# We ensure they're absent BEFORE any splintercomclient import happens.
 _SENSITIVE_ENV_KEYS = [
     "VIDEO_SOURCE",
     "TOKEN_FILE_PATH",
@@ -24,18 +24,20 @@ _SENSITIVE_ENV_KEYS = [
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    """Remove all intercom-related env vars before each test.
+    """Remove all splintercom-related env vars before each test.
 
     Uses monkeypatch so the cleanup is automatic and scoped.
-    Also removes previously-imported intercomclient modules so they
+    Also removes previously-imported splintercomclient modules so they
     get fresh-imported with the cleaned env.
     """
     for key in _SENSITIVE_ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
 
-    # Remove cached intercomclient modules so they re-import fresh
+    # Remove cached splintercomclient modules so they re-import fresh
     to_remove = [
-        mod for mod in sys.modules if mod.startswith("intercomclient") or mod == "main"
+        mod
+        for mod in sys.modules
+        if mod.startswith("splintercomclient") or mod == "main"
     ]
     for mod in to_remove:
         del sys.modules[mod]
@@ -44,7 +46,9 @@ def _clean_env(monkeypatch):
 
     # Cleanup after test too
     to_remove = [
-        mod for mod in sys.modules if mod.startswith("intercomclient") or mod == "main"
+        mod
+        for mod in sys.modules
+        if mod.startswith("splintercomclient") or mod == "main"
     ]
     for mod in to_remove:
         del sys.modules[mod]

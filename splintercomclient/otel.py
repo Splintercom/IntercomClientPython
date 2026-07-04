@@ -22,7 +22,7 @@ def setup_telemetry(service_name: str) -> None:
         TraceContextTextMapPropagator,
     )
 
-    from intercomclient.host_metrics import HostMetricsSpanProcessor, warmup
+    from splintercomclient.host_metrics import HostMetricsSpanProcessor, warmup
 
     set_global_textmap(
         CompositeHTTPPropagator(

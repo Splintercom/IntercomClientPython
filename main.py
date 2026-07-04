@@ -14,20 +14,20 @@ from aiortc import (
 from aiortc.sdp import candidate_from_sdp
 from requests import HTTPError
 
-from intercomclient.camera_video_stream_track import (
+from splintercomclient.camera_video_stream_track import (
     CameraVideoStreamTrack,
     SharedCameraSource,
 )
-from intercomclient.config import Config
-from intercomclient.device_authorization import (
+from splintercomclient.config import Config
+from splintercomclient.device_authorization import (
     initiate_device_authorization,
     poll_for_token,
     refresh_tokens,
 )
-from intercomclient.otel import setup_telemetry
-from intercomclient.telemetry import TelemetryClient
-from intercomclient.token_store import TokenStatus, TokenStore
-from intercomclient.turn import fetch_turn_credentials
+from splintercomclient.otel import setup_telemetry
+from splintercomclient.telemetry import TelemetryClient
+from splintercomclient.token_store import TokenStatus, TokenStore
+from splintercomclient.turn import fetch_turn_credentials
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger("pi-client")
@@ -377,7 +377,7 @@ class PiClient:
 
 
 async def main():
-    setup_telemetry("intercom-pi-client")
+    setup_telemetry("splintercom-pi-client")
     config = Config()
     client = PiClient(config)
 

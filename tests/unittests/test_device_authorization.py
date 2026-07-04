@@ -10,21 +10,21 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from intercomclient.config import Config
+from splintercomclient.config import Config
 
 
 class TestInitiateDeviceAuthorization:
     def test_success_returns_json(self):
         with (
             patch(
-                "intercomclient.device_authorization.get_os_info",
+                "splintercomclient.device_authorization.get_os_info",
                 return_value="Linux-5.15",
             ),
             patch(
-                "intercomclient.device_authorization.get_device_type",
+                "splintercomclient.device_authorization.get_device_type",
                 return_value="aarch64",
             ),
-            patch("intercomclient.device_authorization.requests.post") as mock_post,
+            patch("splintercomclient.device_authorization.requests.post") as mock_post,
         ):
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -37,7 +37,7 @@ class TestInitiateDeviceAuthorization:
             mock_post.return_value = mock_resp
 
             config = Config(http_api_base_url="http://api.test")
-            from intercomclient.device_authorization import (
+            from splintercomclient.device_authorization import (
                 initiate_device_authorization,
             )
 
@@ -48,14 +48,14 @@ class TestInitiateDeviceAuthorization:
     def test_sends_correct_form_data(self):
         with (
             patch(
-                "intercomclient.device_authorization.get_os_info",
+                "splintercomclient.device_authorization.get_os_info",
                 return_value="Linux-5.15",
             ),
             patch(
-                "intercomclient.device_authorization.get_device_type",
+                "splintercomclient.device_authorization.get_device_type",
                 return_value="aarch64",
             ),
-            patch("intercomclient.device_authorization.requests.post") as mock_post,
+            patch("splintercomclient.device_authorization.requests.post") as mock_post,
         ):
             mock_resp = MagicMock()
             mock_resp.status_code = 200
@@ -63,7 +63,7 @@ class TestInitiateDeviceAuthorization:
             mock_post.return_value = mock_resp
 
             config = Config(http_api_base_url="http://api.test")
-            from intercomclient.device_authorization import (
+            from splintercomclient.device_authorization import (
                 initiate_device_authorization,
             )
 
@@ -78,13 +78,14 @@ class TestInitiateDeviceAuthorization:
     def test_non_200_raises_runtime_error(self):
         with (
             patch(
-                "intercomclient.device_authorization.get_os_info", return_value="Linux"
+                "splintercomclient.device_authorization.get_os_info",
+                return_value="Linux",
             ),
             patch(
-                "intercomclient.device_authorization.get_device_type",
+                "splintercomclient.device_authorization.get_device_type",
                 return_value="arm",
             ),
-            patch("intercomclient.device_authorization.requests.post") as mock_post,
+            patch("splintercomclient.device_authorization.requests.post") as mock_post,
         ):
             mock_resp = MagicMock()
             mock_resp.status_code = 400
@@ -95,7 +96,7 @@ class TestInitiateDeviceAuthorization:
             mock_resp.text = "bad client"
             mock_post.return_value = mock_resp
 
-            from intercomclient.device_authorization import (
+            from splintercomclient.device_authorization import (
                 initiate_device_authorization,
             )
 
@@ -107,8 +108,8 @@ class TestInitiateDeviceAuthorization:
 class TestPollForToken:
     def test_pending_then_success(self):
         with (
-            patch("intercomclient.device_authorization.requests.post") as mock_post,
-            patch("intercomclient.device_authorization.sleep") as mock_sleep,
+            patch("splintercomclient.device_authorization.requests.post") as mock_post,
+            patch("splintercomclient.device_authorization.sleep") as mock_sleep,
         ):
             pending_resp = MagicMock()
             pending_resp.json.return_value = {"error": "authorization_pending"}
@@ -122,7 +123,7 @@ class TestPollForToken:
 
             mock_post.side_effect = [pending_resp, success_resp]
 
-            from intercomclient.device_authorization import poll_for_token
+            from splintercomclient.device_authorization import poll_for_token
 
             config = Config(http_api_base_url="http://api.test")
             result = poll_for_token(config, "dev-code", interval=5)
@@ -131,8 +132,8 @@ class TestPollForToken:
 
     def test_immediate_success(self):
         with (
-            patch("intercomclient.device_authorization.requests.post") as mock_post,
-            patch("intercomclient.device_authorization.sleep") as mock_sleep,
+            patch("splintercomclient.device_authorization.requests.post") as mock_post,
+            patch("splintercomclient.device_authorization.sleep") as mock_sleep,
         ):
             success_resp = MagicMock()
             success_resp.json.return_value = {
@@ -142,7 +143,7 @@ class TestPollForToken:
             }
             mock_post.return_value = success_resp
 
-            from intercomclient.device_authorization import poll_for_token
+            from splintercomclient.device_authorization import poll_for_token
 
             config = Config(http_api_base_url="http://api.test")
             result = poll_for_token(config, "dev-code", interval=5)
@@ -152,7 +153,7 @@ class TestPollForToken:
 
 class TestRefreshTokens:
     def test_success(self):
-        with patch("intercomclient.device_authorization.requests.post") as mock_post:
+        with patch("splintercomclient.device_authorization.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.raise_for_status = MagicMock()
             mock_resp.json.return_value = {
@@ -162,20 +163,20 @@ class TestRefreshTokens:
             }
             mock_post.return_value = mock_resp
 
-            from intercomclient.device_authorization import refresh_tokens
+            from splintercomclient.device_authorization import refresh_tokens
 
             config = Config(http_api_base_url="http://api.test")
             result = refresh_tokens(config, "old-refresh-token")
             assert result["access_token"] == "new-access"
 
     def test_sends_correct_data(self):
-        with patch("intercomclient.device_authorization.requests.post") as mock_post:
+        with patch("splintercomclient.device_authorization.requests.post") as mock_post:
             mock_resp = MagicMock()
             mock_resp.raise_for_status = MagicMock()
             mock_resp.json.return_value = {}
             mock_post.return_value = mock_resp
 
-            from intercomclient.device_authorization import refresh_tokens
+            from splintercomclient.device_authorization import refresh_tokens
 
             config = Config(http_api_base_url="http://api.test")
             refresh_tokens(config, "my-refresh-token")

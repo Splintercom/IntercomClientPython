@@ -1,6 +1,6 @@
-# Intercom Python Client
+# Splintercom Python Client
 
-Python device client that authenticates via OAuth2 device flow, streams camera video over WebRTC, and sends telemetry to the Intercom API.
+Python device client that authenticates via OAuth2 device flow, streams camera video over WebRTC, and sends telemetry to the Splintercom API.
 
 ## Tech Stack
 
@@ -39,11 +39,11 @@ Both workflows send a structured event to Honeycomb (`github-actions` dataset) a
 ## Installation on Raspberry Pi (from .deb)
 
 ```bash
-sudo dpkg -i intercom-client_<version>_arm64.deb
+sudo dpkg -i splintercom-client_<version>_arm64.deb
 
 # Configure
-sudo nano /etc/intercom-client/env
+sudo nano /etc/splintercom-client/env
 
 # Enable and start
-sudo systemctl enable --now intercom-client
+sudo systemctl enable --now splintercom-client
 ```

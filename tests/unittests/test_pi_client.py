@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-from intercomclient.config import Config
+from splintercomclient.config import Config
 
 
 def _make_config(**overrides):
@@ -66,8 +66,8 @@ class TestCheckTokenStatus:
 
 class TestPiClientStartup:
     def test_init_creates_token_store(self):
-        from intercomclient.token_store import TokenStore
         from main import PiClient
+        from splintercomclient.token_store import TokenStore
 
         client = PiClient(_make_config())
         assert isinstance(client.token_store, TokenStore)

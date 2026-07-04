@@ -1,4 +1,4 @@
-"""Tests for intercomclient.token_store."""
+"""Tests for splintercomclient.token_store."""
 
 import json
 import os
@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from intercomclient.config import Config
-from intercomclient.token_store import CannotLoadTokensException, TokenStore
+from splintercomclient.config import Config
+from splintercomclient.token_store import CannotLoadTokensException, TokenStore
 
 
 def _make_config(token_path):

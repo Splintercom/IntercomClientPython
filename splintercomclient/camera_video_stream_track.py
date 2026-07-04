@@ -5,7 +5,7 @@ import av
 import cv2
 from aiortc import VideoStreamTrack
 
-from intercomclient.config import Config
+from splintercomclient.config import Config
 
 LOG = logging.getLogger(__name__)
 

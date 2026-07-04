@@ -1,4 +1,4 @@
-# Intercom ClientPython
+# Splintercom ClientPython
 
 Python device client that streams video from a camera to a remote viewer (browser) using WebRTC, authenticated via OAuth 2.0 Device Authorization Grant, with continuous telemetry reporting.
 
@@ -16,7 +16,7 @@ Python device client that streams video from a camera to a remote viewer (browse
 ```
 ClientPython/
 ├── main.py                      # PiClient entry point
-├── intercomclient/
+├── splintercomclient/
 │   ├── config.py                # Config dataclass (env vars)
 │   ├── device_authorization.py  # OAuth device flow functions
 │   ├── token_store.py           # Token persistence (JSON file, 0600 perms)
@@ -28,12 +28,12 @@ ClientPython/
 
 ## Architecture
 
-### Authentication (`intercomclient/device_authorization.py` + `intercomclient/token_store.py`)
+### Authentication (`splintercomclient/device_authorization.py` + `splintercomclient/token_store.py`)
 - **OAuth 2.0 Device Code Grant** (`urn:ietf:params:oauth:grant-type:device_code`)
 - `initiate_device_authorization()` — POSTs to `/oauth/device-authorization/` with device type/OS
 - `poll_for_token()` — Polls `/oauth/token/` with device code until approved (timeout configurable via `MAX_POLLING_TIME_MINS`, default 5 min)
 - `refresh_tokens()` — Refreshes access token using stored refresh token
-- `TokenStore` — Stores access/refresh tokens + `device_code` to JSON file (permissions `0600`) at `~/.config/intercomclient/tokens.json`
+- `TokenStore` — Stores access/refresh tokens + `device_code` to JSON file (permissions `0600`) at `~/.config/splintercomclient/tokens.json`
 
 ### WebRTC Signaling (`main.py` — `PiClient`)
 - Connects to WebSocket signaling server at `{WEBSOCKET_API_BASE_URL}/ws/live_stream/{device_code}/`
@@ -51,7 +51,7 @@ ClientPython/
 - Uses `if pc is not self.pc: return` guard in all event handlers to discard events from replaced PCs
 - Signaling WebSocket is **never** closed by WebRTC state changes — only by unrecoverable signaling errors
 
-### Video Capture (`intercomclient/camera_video_stream_track.py`)
+### Video Capture (`splintercomclient/camera_video_stream_track.py`)
 - `cv2.VideoCapture` can only be opened **once** per process on this hardware. Multi-viewer support is handled by `SharedCameraSource`:
   - Opens the capture device once; runs a `_read_loop` background task that reads frames and fan-outs to per-viewer `asyncio.Queue(maxsize=4)`.
   - Subscribers call `subscribe(key) → Queue` / `unsubscribe(key)`. If a queue is full, the oldest frame is dropped (never blocks the read loop).
@@ -60,7 +60,7 @@ ClientPython/
 - Converts frames to `av.VideoFrame` (BGR24 format) with proper PTS/time_base timestamps.
 - `PiClient._get_or_create_camera_source()` — lazily opens the camera; `_release_camera_if_idle()` — stops and nulls it when `peer_connections` is empty.
 
-### Telemetry (`intercomclient/telemetry.py` — `TelemetryClient`)
+### Telemetry (`splintercomclient/telemetry.py` — `TelemetryClient`)
 - `send(event, message="", level="INFO")` — synchronous; called via `asyncio.to_thread` from async contexts
 - Reads the current access token and `device_code` from `TokenStore` on each call
 - POSTs to `POST /api/v1/devices/{device_code}/telemetry/` with `Authorization: Bearer <token>`
@@ -80,13 +80,13 @@ ClientPython/
 | `disconnected` | `shutdown()` called (SIGINT/SIGTERM) |
 | `heartbeat` | Every 30 seconds from background `_heartbeat_loop` task |
 
-### Configuration (`intercomclient/config.py`)
+### Configuration (`splintercomclient/config.py`)
 - All configurable via environment variables:
   - `HTTP_API_BASE_URL` — Backend API URL (default: `http://backend:8000`)
   - `WEBSOCKET_API_BASE_URL` — WebSocket URL (default: `ws://backend:8000`)
   - `VIDEO_SOURCE` — Camera device index (default: `0`)
-  - `TOKEN_FILE_PATH` — Token file path (default: `~/.config/intercomclient/tokens.json`)
-  - `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` — Fallback if `~/.config/intercom-api/oauth.json` not found
+  - `TOKEN_FILE_PATH` — Token file path (default: `~/.config/splintercomclient/tokens.json`)
+  - `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` — Fallback if `~/.config/splintercom-api/oauth.json` not found
   - `MAX_POLLING_TIME_MINS` — Device auth polling timeout (default: `5`)
 - Defaults: 320×240 resolution, 5 fps
 
@@ -119,8 +119,8 @@ devices:
 `clientpython` depends on `utility` (healthy) — ensures device registration and token writing complete before the client starts.
 
 ### Shared Volumes
-- `device_oauth_config` — OAuth credentials from `utility` (`~/.config/intercom-api/oauth.json`)
-- `client_tokens` — Token file shared with `utility` (`~/.config/intercomclient/tokens.json`)
+- `device_oauth_config` — OAuth credentials from `utility` (`~/.config/splintercom-api/oauth.json`)
+- `client_tokens` — Token file shared with `utility` (`~/.config/splintercomclient/tokens.json`)
 
 ## Environment Variables
 
@@ -129,7 +129,7 @@ devices:
 | `HTTP_API_BASE_URL` | `http://backend:8000` | Backend API base URL |
 | `WEBSOCKET_API_BASE_URL` | `ws://backend:8000` | WebSocket base URL |
 | `VIDEO_SOURCE` | `0` | Camera device index |
-| `TOKEN_FILE_PATH` | `~/.config/intercomclient/tokens.json` | Token storage path |
+| `TOKEN_FILE_PATH` | `~/.config/splintercomclient/tokens.json` | Token storage path |
 | `OAUTH_CLIENT_ID` | from `oauth.json` | OAuth client ID |
 | `OAUTH_CLIENT_SECRET` | from `oauth.json` | OAuth client secret |
 | `MAX_POLLING_TIME_MINS` | `5` | Device auth polling timeout |
