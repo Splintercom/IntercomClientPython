@@ -39,7 +39,7 @@ jobs:
 
       - name: Build and push arch-specific image
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/intercom-python-client
+          IMAGE=ghcr.io/splintercom/intercom-python-client
           APP_VERSION=$(cat VERSION)
 
           # Built natively on a runner matching each target arch (not cross-compiled via QEMU) —
