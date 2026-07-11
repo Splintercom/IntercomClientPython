@@ -85,8 +85,13 @@ def refresh_tokens(config: Config, refresh_token) -> dict:
 
     try:
         api_response.raise_for_status()
-        response_json = api_response.json()
-        return response_json
+        return api_response.json()
     except requests.HTTPError:
-        LOG.error("HTTP error during token refresh: %s", api_response.json())
-        return response_json
+        error_body = api_response.json() if api_response.content else {}
+        LOG.error(
+            "Token refresh failed (%d): %s — %s",
+            api_response.status_code,
+            error_body.get("error", "unknown"),
+            error_body.get("error_description", api_response.text),
+        )
+        raise

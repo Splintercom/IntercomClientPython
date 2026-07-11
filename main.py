@@ -12,7 +12,6 @@ from aiortc import (
     RTCSessionDescription,
 )
 from aiortc.sdp import candidate_from_sdp
-from requests import HTTPError
 
 from splintercomclient.camera_video_stream_track import (
     CameraVideoStreamTrack,
@@ -110,15 +109,10 @@ class PiClient:
     def refresh_flow(self):
         tokens = self.token_store.load_tokens()
 
-        try:
-            refresh_response = refresh_tokens(
-                self.config,
-                tokens["refresh"]["token_value"],
-            )
-
-        except HTTPError as e:
-            LOG.error("Token refresh failed: %s", e)
-            print(refresh_response)
+        refresh_response = refresh_tokens(
+            self.config,
+            tokens["refresh"]["token_value"],
+        )
 
         expiry = (
             datetime.now(tz=UTC) + timedelta(seconds=refresh_response["expires_in"])
