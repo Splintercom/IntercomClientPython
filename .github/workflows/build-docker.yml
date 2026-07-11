@@ -9,6 +9,11 @@ concurrency:
   group: build-python-client
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  packages: write
+
+
 jobs:
   build:
     strategy:
@@ -22,9 +27,6 @@ jobs:
             platform: linux/arm64
             runner: ubuntu-22.04-arm
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      packages: write
 
     steps:
       - name: Record job start time
@@ -109,7 +111,7 @@ jobs:
 
       - name: Create and push multi-arch manifest
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/intercom-python-client
+          IMAGE=ghcr.io/splintercom/intercom-python-client
           APP_VERSION=$(cat VERSION)
           DOCKER_TAG=$(echo "$APP_VERSION" | tr '+' '-')
 

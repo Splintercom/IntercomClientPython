@@ -41,6 +41,7 @@ class PiClient:
         self.peer_connections: dict[str, RTCPeerConnection] = {}
         self.camera_tracks: dict[str, CameraVideoStreamTrack] = {}
         self._camera_source: SharedCameraSource | None = None
+        self.pc = None
         self.ws = None
         self.running = True
         self.turn_credentials: dict | None = None
@@ -366,6 +367,9 @@ class PiClient:
         )
 
         await self._cleanup_connections()
+
+        if self.pc:
+            await self.pc.close()
 
         if self.ws:
             await self.ws.close()
